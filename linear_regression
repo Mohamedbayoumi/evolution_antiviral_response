@@ -1,0 +1,173 @@
+setwd("D:/PhD_Montreal/fibroblast")
+
+library(edgeR)
+library(stringr)
+library(ggplot2)
+library(Rtsne)
+library(plotrix)
+library(ggrepel)
+library(nadiv)
+library(ouch)
+library(ape)
+library(drc)
+load(file = "fibroblast.all.RData")
+load(file = "OU_model_logFC_comprehensive.RData")
+
+fibroplast_primates = read.table("orthologs.fibroplast.primates.txt", header = T, sep = "\t", stringsAsFactors = F)
+#fibroplast_primates = read.table("orthologs.fibroplast.primates.tpm.kallisto.txt", header = T, sep = "\t", stringsAsFactors = F)
+
+
+# preparing metadata
+metadata_primates = read.table("SraRunTable_primates.txt", header = T, sep = ",", stringsAsFactors = F)
+metadata_primates = metadata_primates[order(metadata_primates$Run) , ]
+
+metadata_primates = metadata_primates[metadata_primates$treatment != "24 h transfection 0.05 ug/cm2 poly(I:C) and 24 h mock transfected" , ]
+fibroplast_primates = fibroplast_primates[ , colnames(fibroplast_primates) %in% c("genes", metadata_primates$Run) ]
+metadata_primates$treatment = gsub("24 h mock transfected", "NC", metadata_primates$treatment)
+metadata_primates$treatment = gsub("24 h transfection 0.05 ug/cm2 poly(I:C)", "IFNA", metadata_primates$treatment, fixed = T)
+
+metadata_primates = metadata_primates[order(metadata_primates$GEO_Accession) , ]
+fibro.metaAll$sample_id = as.character(fibro.metaAll$sample_id)
+fibro.metaAll = fibro.metaAll[order(fibro.metaAll$sample_id) , ]
+metadata_primates$indiv = fibro.metaAll$individual
+metadata_primates$replicat = fibro.metaAll$replicate
+
+## merging all technial replicates
+primat.species = unique(metadata_primates$Organism)
+
+new_fibroplast_primates = data.frame(row.names = fibroplast_primates$genes, stringsAsFactors = F)
+new_metadata_primates = data.frame(samples.names = as.character(), species = as.character(), treatment = as.character(), individual = as.character() )
+
+for(i in 1:length(primat.species) ) {
+  temp.metadata = metadata_primates[metadata_primates$Organism == primat.species[i] , ]
+  temp.data = fibroplast_primates[ , colnames(fibroplast_primates) %in% c("genes", temp.metadata$Run) ]
+  temp.indiv = unique(temp.metadata$indiv)
+  temp.trt = unique(temp.metadata$treatment)
+  for(ind in temp.indiv) {
+    for(l in temp.trt) {
+      samples.replicat = temp.metadata[temp.metadata$indiv %in% ind & temp.metadata$treatment %in% l , ]    
+      temp.data.reps = temp.data[ , colnames(temp.data) %in% samples.replicat$Run ]
+      temp.data.reps$mean = rowMeans(temp.data.reps)
+      temp.data.reps$var = apply(temp.data.reps[ grepl( "SRR", colnames(temp.data.reps) ) ], 1, std.error)
+      new_fibroplast_primates[ , ncol(new_fibroplast_primates) + 1 ] = temp.data.reps$mean 
+      colnames(new_fibroplast_primates)[ncol(new_fibroplast_primates)] = paste(ind, l, sep = "_")
+      new_metadata_primates.temp = data.frame(samples.names = as.character(paste(ind, l, sep = "_")), species = as.character(primat.species[i]), treatment = as.character(l), individual = as.character(ind) )
+      new_metadata_primates = rbind.data.frame(new_metadata_primates , new_metadata_primates.temp) 
+    }
+  }
+  
+}
+
+
+
+y = DGEList(counts = fibroplast_primates[ , colnames(fibroplast_primates) != "genes"], genes = fibroplast_primates$genes)
+keep <- rowSums(cpm(y)>1) >= 100
+y <- y[keep, ,keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+
+species = metadata_primates$Organism
+trt = metadata_primates$treatment
+#indiv = metadata_primates$
+  
+design <- model.matrix(~ 0 + species + species:trt, data = fibroplast_primates)  
+v = voom(y, design, plot = T)
+
+
+
+## mammals
+fibroplast_mammals = read.table("orthologs.fibroplast.mammals.txt", header = T, sep = "\t", stringsAsFactors = F)
+#fibroplast_mammals = read.table("orthologs.fibroplast.mammals.tpm.kallisto.txt", header = T, sep = "\t", stringsAsFactors = F)
+
+
+metadata_mammals = read.table("orthologs.fibroplast.mammals.metadata.txt", header = T, sep = "\t", stringsAsFactors = F)
+
+#"Gallus gallus" "Bos taurus"  "Canis lupus familiaris" "Equus caballus"  "Homo sapiens"  "Myotis lucifugus"  "Pteropus vampyrus"  "Sus scrofa"  "Rattus norvegicus"  "Ovis aries"    
+species.2cmbin = c("Rattus norvegicus", "Homo sapiens", "Bos taurus",  "Canis lupus familiaris", "Equus caballus" , "Sus scrofa" , "Ovis aries", "Pteropus vampyrus" , "Myotis lucifugus", "Gallus gallus")
+metadata_mammals.sbst = metadata_mammals[metadata_mammals$Organism %in% species.2cmbin , ]
+fibroplast_mammals.sbst = fibroplast_mammals[ , colnames(fibroplast_mammals) %in% c("genes", metadata_mammals.sbst$Run) ]
+metadata_mammals.sbst = metadata_mammals.sbst[order(metadata_mammals.sbst$Run) , ]
+fibroplast_mammals.sbst = fibroplast_mammals.sbst[ , order(colnames(fibroplast_mammals.sbst)) ]
+
+intersected.genes = intersect(fibroplast_mammals$genes, fibroplast_primates$genes)
+fibroplast_primates.sbst = fibroplast_primates[fibroplast_primates$genes %in% intersected.genes , ]
+fibroplast_mammals.sbst = fibroplast_mammals.sbst[fibroplast_mammals.sbst$genes %in% intersected.genes, ]
+
+fibroplast_primates.sbst = fibroplast_primates.sbst[order(fibroplast_primates.sbst$genes) , ]
+fibroplast_mammals.sbst = fibroplast_mammals.sbst[order(fibroplast_mammals.sbst$genes) , ]
+
+combined.dat = merge(fibroplast_primates.sbst, fibroplast_mammals.sbst, by = "genes")
+
+cmbined.meta.1 = metadata_primates[ , colnames(metadata_primates) %in% c("Run", "Organism", "treatment") ]
+cmbined.meta.2 = metadata_mammals.sbst[ , colnames(metadata_mammals.sbst) %in% c("Run", "Organism", "trt") ]
+colnames(cmbined.meta.2) = gsub("trt", "treatment", colnames(cmbined.meta.2))
+combined.metadat = rbind.data.frame( cmbined.meta.1 , cmbined.meta.2)
+combined.metadat$treatment = gsub("24 h mock transfected", "NC", combined.metadat$treatment)
+combined.metadat$treatment = gsub("24 h transfection 0.05 ug/cm2 poly(I:C)", "IFNA", combined.metadat$treatment, fixed = T)
+
+# remove outlier
+combined.dat = combined.dat[ , colnames(combined.dat) != "SRR6190145" ]
+combined.metadat = combined.metadat[combined.metadat$Run != "SRR6190145" , ]
+
+
+combined.metadat$treatment_2 = combined.metadat$treatment
+combined.metadat[combined.metadat$Organism == "Pteropus vampyrus" & combined.metadat$treatment == "NC" , ]$treatment_2 = "IFNA"
+combined.metadat[combined.metadat$Organism == "Pteropus vampyrus" & combined.metadat$treatment == "IFNA" , ]$treatment_2 = "NC"
+
+combined.metadat$species_2 = combined.metadat$Organism
+combined.metadat$species_2 = gsub(" ", "_", combined.metadat$species_2)
+
+species = combined.metadat$species_2
+trt = combined.metadat$treatment_2
+
+y = DGEList(counts = combined.dat[ , colnames(combined.dat) != "genes"], genes = combined.dat$genes)
+keep <- rowSums(cpm(y)>1) >= 65
+y <- y[keep, ,keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+species = combined.metadat$species_2
+trt = combined.metadat$treatment_2
+design <- model.matrix(~ 0 + species + species:trt, data = combined.dat)  
+v = voom(y, design, plot = T)
+
+fit = lmFit(v, design)
+species.comparisons <- makeContrasts('speciesCanis_lupus_familiaris.trtNC', 'speciesHomo_sapiens.trtNC', 'speciesMyotis_lucifugus.trtNC',
+                                    'speciesPapio_anubis.trtNC', 'speciesSaimiri_sciureus.trtNC', 'speciesEquus_caballus.trtNC', 'speciesMacaca_mulatta.trtNC',
+                                    'speciesOvis_aries.trtNC', 'speciesPongo_abelii.trtNC', 'speciesSus_scrofa.trtNC', 'speciesGallus_gallus.trtNC',
+                                    'speciesMacaca_nemestrina.trtNC', 'speciesPan_paniscus.trtNC', 'speciesPteropus_vampyrus.trtNC',
+                                    'speciesBos_taurus.trtNC', 'speciesGorilla_gorilla.trtNC', 'speciesMus_musculus.trtNC', 'speciesPan_troglodytes.trtNC',
+                                    'speciesRattus_norvegicus.trtNC', levels = make.names(colnames(design)) )  
+
+fit.FC = contrasts.fit(fit, species.comparisons)
+fit.FC = eBayes(fit.FC)
+summary(decideTests(fit.FC, p.value = 0.05))
+
+FDRcutoff=0.15
+p.value.all = cbind.data.frame(genes = fit.FC$genes$genes, fit.FC$p.value)
+colnames(p.value.all) = gsub("species", "", colnames(p.value.all))
+colnames(p.value.all) = gsub(".trtNC", "", colnames(p.value.all))
+p.value.all$sig.species = apply(p.value.all[ , colnames(p.value.all) != "genes" ] , 1, function(x) {sigSp = x[x < FDRcutoff ] ; return(length(sigSp)) } )
+
+
+## identify conserved genes
+pvals = data.frame(genes = fit.FC$genes$genes, fit.FC$p.value, stringsAsFactors = F )
+pvals.patt = pvals[, colnames(pvals) != "genes"] < 0.15 
+sign_conser = pvals$genes[rowMeans(pvals.patt) == 1 ]
+
+betas = data.frame(genes = fit.FC$genes$genes, fit.FC$coefficients, stringsAsFactors = F )
+betas.patt = betas[, colnames(betas) != "genes"] < 0 
+betas_conser = betas$genes[rowMeans(betas.patt) == 1 ]
+
+conserved_genes = intersect(betas_conser, sign_conser)
+IIGs = read.table(file = "innate_immune_effectors.txt", header = T, sep = "\t", stringsAsFactors = F)
+IIGs_conserved = IIGs[IIGs$HGNC_symbol %in% str_split_fixed(conserved_genes, pattern = ";", 2)[,2] , ]
+write.table(x = conserved_genes, file = "conserved_genes.txt", quote = F, sep = "\t", row.names = F, col.names = F)
+
+DEG_df = as.data.frame(summary(decideTests(fit.FC, p.value = 0.05)) )
+DEG_df = DEG_df[DEG_df$Var1 == "Down" , ]
+DEG_df$Var2 = gsub("species", "", DEG_df$Var2)
+DEG_df$Var2 = gsub(".trtNC", "", DEG_df$Var2)
+DEG_df = DEG_df[order(DEG_df$Freq) , ]
+colnames(DEG_df)[2:3] = c("species", "# of DEGs")
+DEG_df$species = factor(DEG_df$species, levels = DEG_df$species)
+
+ggplot(data = DEG_df, aes(x=species, y= `# of DEGs`) ) + geom_bar(stat="identity"  ) + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+
