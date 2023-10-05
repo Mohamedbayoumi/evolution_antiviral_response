@@ -1,0 +1,62 @@
+setwd("C:/PhD_Montreal/fibroblast")
+
+library(readxl)
+library(stringr)
+
+
+## reading metadata
+
+fibro.metaAll = data.frame(sample_id = as.character(), description =  as.character(), species =  as.character(), V4 =  as.character(), trtment =  as.character(), individual =  as.character(), replicate =  as.character(), stringsAsFactors = F)
+
+for (st in 1:10) {
+  
+meta.data.fbro = read_excel(path = "samples_metadata.xlsx", sheet = paste("Sheet", st, sep = "") )
+meta.data.fbro = as.data.frame( t(meta.data.fbro) )
+meta.data.fbro$description = rownames(meta.data.fbro)
+colnames(meta.data.fbro)[1] = c( "sample_id" )
+meta.data.fbro = meta.data.fbro[2:nrow(meta.data.fbro) , c(1,3)]
+meta.data.fbro[3:4] = str_split_fixed(meta.data.fbro[,2], "donor", 2)
+meta.data.fbro[5:7] = str_split_fixed(meta.data.fbro[,4], " ", 3)
+meta.data.fbro[,5] = meta.data.fbro[,7] 
+colnames(meta.data.fbro)[ c(3,5:7)] = c( "species" , "trtment", "individual", "replicate")
+meta.data.fbro$trtment = gsub("[0-9]$", "", meta.data.fbro$trtment)  
+meta.data.fbro$trtment = gsub("[A-Z]$", "", meta.data.fbro$trtment)  
+meta.data.fbro = meta.data.fbro[grepl("treated|mock", meta.data.fbro$trtment) , ]
+
+fibro.metaAll = rbind.data.frame(meta.data.fbro, fibro.metaAll, stringsAsFactors = F)
+
+}
+
+fibro.metaAll$species = gsub("human", "Human", fibro.metaAll$species)
+fibro.metaAll$species = gsub("Oive", "Olive", fibro.metaAll$species)
+fibro.metaAll$species = gsub("olive", "Olive", fibro.metaAll$species)
+
+
+#### loading the data #####
+
+fibro.metaAll$species = gsub(" $", "", fibro.metaAll$species)
+species.all = names(table(fibro.metaAll$species))
+
+for(sp in 10:length(species.all)) {
+  
+  sp.2test = species.all[sp]
+  sp.2test.samples = as.character( fibro.metaAll[fibro.metaAll$species == sp.2test , ]$sample_id)
+  
+  #provide a data frame templete for union of all individual data frames
+  
+  sp.2test.df = read.table( file = paste("GSE105160_RAW/", list.files(path = "GSE105160_RAW", pattern = paste( sp.2test.samples[1], "_SpeciesMapped_.*.txt" , sep = "") ), sep = "" ) , header = T, sep = "\t", stringsAsFactors = F )
+  sp.2test.df = data.frame( Geneid = sp.2test.df[,1][order(sp.2test.df[,1])], stringsAsFactors = F )
+  
+  for (i in 1:length(sp.2test.samples) ) {
+  indiv.df = read.table( file = paste("GSE105160_RAW/", list.files(path = "GSE105160_RAW", pattern = paste( sp.2test.samples[i], "_SpeciesMapped_.*.txt" , sep = "") ), sep = "" ) , header = T, sep = "\t", stringsAsFactors = F )
+  colnames(indiv.df)[2] = sp.2test.samples[i]
+  indiv.df = indiv.df[order(indiv.df[,1]) , ]
+  sp.2test.df[ ,i+1 ] = indiv.df[,2]
+  colnames(sp.2test.df)[i+1] = colnames(indiv.df)[2]
+  }
+  assign(paste(sp.2test, "counts", sep = ".") , sp.2test.df)
+  
+}
+
+
+
