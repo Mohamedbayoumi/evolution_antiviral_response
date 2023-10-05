@@ -1,0 +1,83 @@
+
+# obtain normalized values of response for OU model
+species.means.data = betas
+rownames(species.means.data) = species.means.data$genes
+species.means.data = species.means.data[ , colnames(species.means.data) != "genes"]
+colnames(species.means.data) = gsub(".trtNC", "", colnames(species.means.data))
+colnames(species.means.data)= gsub("species", "", colnames(species.means.data))
+#species.means.data = species.means.data[rownames(species.means.data) %in% p.value.all[p.value.all$sig.species >= 15 , ]$genes , ]
+species.means.data.t = as.data.frame(t(species.means.data) )
+
+
+
+## running OU models
+nwk.tree = read.tree("species_all.nwk")
+#nwk.tree = read.tree("species_all_noChic.nwk")
+ou.tree = ape2ouch(nwk.tree)
+outree.datafram = as(ou.tree,"data.frame")
+species.means.data.t$labels = rownames(species.means.data.t)
+species.means.data.t$labels = gsub("Canis_lupus_familiaris" , "Canis_lupus", species.means.data.t$labels ) 
+oudata <- merge(outree.datafram, species.means.data.t,by="labels",all=T)
+row.names(oudata) = oudata$nodes
+newoutree<-ouchtree(nodes= oudata$nodes, ancestors=oudata$ancestors, times=oudata$times, labels=oudata$labels)
+
+labels.primates = c("42", "43", "6", "8", "27", "29", "30", "35", "Pongo_abelii", "Gorilla_gorilla" ,"Homo_sapiens", "Papio_anubis", "Pan_troglodytes" ,"Pan_paniscus" ,"Saimiri_sciureus", "Macaca_mulatta" ,"Macaca_nemestrina")
+labels.primates_test = c( "29", "30" ,"Homo_sapiens", "Pan_troglodytes" ,"Pan_paniscus") # to test power
+labels.primates.2 = c("Pongo_abelii", "Gorilla_gorilla" ,"Homo_sapiens", "Papio_anubis", "Pan_troglodytes" ,"Pan_paniscus" ,"Saimiri_sciureus", "Macaca_mulatta" ,"Macaca_nemestrina")
+labels.apes = c("Pongo_abelii", "Gorilla_gorilla" ,"Homo_sapiens", "Pan_troglodytes" ,"Pan_paniscus")
+labels.OWMs = c("Macaca_mulatta" ,"Macaca_nemestrina" , "Papio_anubis" )
+labels.rodents = c("22", "Rattus_norvegicus" , "Mus_musculus" )
+labels.glires = c(labels.primates, labels.rodents, "40")
+
+oudata$ou1<-as.factor("single")
+oudata$ou.primates = as.factor( ifelse(oudata$labels %in% labels.primates, "2", "1") )
+oudata$ou.primates.2 = as.factor( ifelse(oudata$labels %in% labels.primates.2, "2", "1") )
+oudata$ou.primates.power = as.factor( ifelse(oudata$labels %in% labels.primates_test, "2", "1") )
+oudata$ou.apes = as.factor( ifelse(oudata$labels %in% labels.apes, "2", "1") )
+oudata$ou.owm = as.factor( ifelse(oudata$labels %in% labels.OWMs, "2", "1") )
+oudata$ou.rodents = as.factor( ifelse(oudata$labels %in% labels.rodents, "2", "1") )
+
+aic.c.df = data.frame(brownian = as.integer() , ou1 = as.integer(), ou.prim = as.integer(), genes = as.character(), stringsAsFactors = F )
+loglik.df = data.frame(brownian = as.integer() , ou1 = as.integer(), ou.prim = as.integer(), genes = as.character(), stringsAsFactors = F )
+alpha.df = data.frame(brownian = as.integer() , ou1 = as.integer(), ou.prim = as.integer(), genes = as.character(), stringsAsFactors = F )
+sigma.sq.df = data.frame(brownian = as.integer() , ou1 = as.integer(), ou.prim = as.integer(), genes = as.character(), stringsAsFactors = F )
+
+virus_vip = read.table(file = "viral_proteins_interaction.txt", header = T, sep = "\t", stringsAsFactors = F)
+
+for (g in 1:nrow(species.means.data) ) {
+  brown<-brown(data=oudata[ rownames(species.means.data)[g] ], tree=newoutree)
+  ou1 <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou1"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.prim <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.primates"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.prim.2 <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.primates.2"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.prim.pwr <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.primates.power"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.apes <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.apes"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.owm <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.owm"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  ou.rodents <-hansen(data=oudata[ rownames(species.means.data)[g] ],tree=newoutree, regimes=oudata["ou.rodents"], sqrt.alpha=1, sigma=1, fit=TRUE)
+  
+  aic.c.df.temp = data.frame(brownian = summary(brown)$aic.c , ou1 = summary(ou1)$aic.c , ou.prim = summary(ou.prim)$aic.c , ou.prim.2 = summary(ou.prim.2)$aic.c , ou.apes = summary(ou.apes)$aic.c , ou.owm = summary(ou.owm)$aic.c , ou.rodents = summary(ou.rodents)$aic.c , ou.prim.pwr = summary(ou.prim.pwr)$aic.c   , genes = rownames(species.means.data)[g] , stringsAsFactors = F )
+  loglik.df.temp = data.frame(brownian = summary(brown)$loglik , ou1 = summary(ou1)$loglik , ou.prim = summary(ou.prim)$loglik , ou.prim.2 = summary(ou.prim.2)$loglik , ou.apes = summary(ou.apes)$loglik , ou.owm = summary(ou.owm)$loglik , ou.rodents = summary(ou.rodents)$loglik , ou.prim.pwr = summary(ou.prim.pwr)$loglik , genes = rownames(species.means.data)[g] , stringsAsFactors = F )
+  alpha.df.temp = data.frame(brownian = NA , ou1 = summary(ou1)$alpha , ou.prim = summary(ou.prim)$alpha , ou.prim.2 = summary(ou.prim.2)$alpha , ou.apes = summary(ou.apes)$alpha , ou.owm = summary(ou.owm)$alpha , ou.rodents = summary(ou.rodents)$alpha , ou.prim.pwr = summary(ou.prim.pwr)$alpha , genes = rownames(species.means.data)[g] , stringsAsFactors = F )
+  sigma.sq.df.temp = data.frame(brownian = summary(brown)$sigma.squared , ou1 = summary(ou1)$sigma.squared , ou.prim = summary(ou.prim)$sigma.squared , ou.prim.2 = summary(ou.prim.2)$sigma.squared , ou.apes = summary(ou.apes)$sigma.squared , ou.owm = summary(ou.owm)$sigma.squared , ou.rodents = summary(ou.rodents)$sigma.squared , ou.prim.pwr = summary(ou.prim.pwr)$sigma.squared , genes = rownames(species.means.data)[g] , stringsAsFactors = F )
+  
+  aic.c.df = rbind.data.frame(aic.c.df, aic.c.df.temp)
+  loglik.df = rbind.data.frame(loglik.df, loglik.df.temp)
+  alpha.df = rbind.data.frame(alpha.df, alpha.df.temp)
+  sigma.sq.df = rbind.data.frame(sigma.sq.df, sigma.sq.df.temp)
+  
+}
+
+sigma.sq.df = sigma.sq.df[order(sigma.sq.df$genes) , ]
+alpha.df = alpha.df[order(alpha.df$genes) , ]
+evol.var = data.frame(genes = alpha.df$genes, evol.var = (sigma.sq.df$ou1 / 2*(alpha.df$ou1) ) , stringsAsFactors = F )
+
+
+# performing the LRT on the delta of the brownian and optimum directly
+lambda = 2*( as.numeric(loglik.df[,2]) - as.numeric(loglik.df[,1]) )
+loglik.df$LRT.values = pchisq(  lambda*2 , df = 1, lower.tail = F)
+loglik.df$FDR = p.adjust(loglik.df$LRT.values , method = "fdr")
+
+## genes under stabelizing selection
+target.dist = species.means.data.t[ , colnames(species.means.data.t) %in% loglik.df[loglik.df$FDR < 0.05 & (loglik.df[2] > loglik.df[1]) , ]$genes &  colnames(species.means.data.t) %in% p.value.all[p.value.all$sig.species >= 15 , ]$genes ] 
+## genes under brownian motion 
+target.dist = species.means.data.t[ , colnames(species.means.data.t) %in% loglik.df[loglik.df$FDR > 0.05 & (loglik.df[1] > loglik.df[2]) , ]$genes &  colnames(species.means.data.t) %in% p.value.all[p.value.all$sig.species >= 15 , ]$genes ] 
+
